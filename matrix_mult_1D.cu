@@ -6,27 +6,29 @@
 
 using namespace std;
 
-void initialData(float *ip, const int size)
+#define SIZE 2000;
+
+void initialData(int *ip, const int size)
 {
     int i;
 
     for(i = 0; i < size; i++)
     {
-        ip[i] = (float)(rand()) / 10.0f;
+        ip[i] = (int)(rand());
     }
 
     return;
 }
 
-void printMatrix(float *A, const int nx, const int ny)
+void printMatrix(int *A, const int nx, const int ny)
  {
-     float *ia = A;
+     int *ia = A;
 
      for (int iy = 0; iy < ny; iy++)
      {
          for (int ix = 0; ix < nx; ix++)
          {
-           printf("%f     ", ia[ix]);
+           printf("%d     ", ia[ix]);
          }
          printf("\n");
          ia += nx;
@@ -35,14 +37,14 @@ void printMatrix(float *A, const int nx, const int ny)
      return;
  }
 
-void multMatrixOnHost(float *A, float *B, float *C, const int nx,
+void multMatrixOnHost(int *A, int *B, int *C, const int nx,
                      const int ny)
 {
-    float *ia = A;
-    float *ib = B;
-    float *ic = C;
+    int *ia = A;
+    int *ib = B;
+    int *ic = C;
 
-    float *ibm = B;
+    int *ibm = B;
 
     for (int iy = 0; iy < ny; iy++)
     {
@@ -65,7 +67,7 @@ void multMatrixOnHost(float *A, float *B, float *C, const int nx,
 }
 
 
-void checkResult(float *hostRef, float *gpuRef, const int N)
+void checkResult(int *hostRef, int *gpuRef, const int N)
 {
     double epsilon = 1.0E-8;
     bool match = 1;
@@ -75,7 +77,7 @@ void checkResult(float *hostRef, float *gpuRef, const int N)
         if (abs(hostRef[i] - gpuRef[i]) > epsilon)
         {
             match = 0;
-            printf("host %f gpu %f\n", hostRef[i], gpuRef[i]);
+            printf("host %d gpu %d\n", hostRef[i], gpuRef[i]);
             break;
         }
     }
@@ -87,7 +89,7 @@ void checkResult(float *hostRef, float *gpuRef, const int N)
 }
 
 // grid 1D block 1D
-__global__ void multMatrixOnGPU1D(float *MatA, float *MatB, float *MatC, int nx,
+__global__ void multMatrixOnGPU1D(int *MatA, int *MatB, int *MatC, int nx,
                                  int ny)
 {
     unsigned int ix = threadIdx.x + blockIdx.x * blockDim.x;
@@ -118,19 +120,19 @@ int main(int argc, char **argv)
     SAFE_CALL(cudaSetDevice(dev), "Error setting device");
 
     // set up data size of matrix
-    int nx = 1 << 10;
-    int ny = 1 << 10;
+    int nx = SIZE;
+    int ny = SIZE;
 
     int nxy = nx * ny;
-    int nBytes = nxy * sizeof(float);
+    int nBytes = nxy * sizeof(int);
     printf("Matrix size: nx %d ny %d\n", nx, ny);
 
     // malloc host memory
-    float *h_A, *h_B, *hostRef, *gpuRef;
-    h_A = (float *)malloc(nBytes);
-    h_B = (float *)malloc(nBytes);
-    hostRef = (float *)malloc(nBytes);
-    gpuRef = (float *)malloc(nBytes);
+    int *h_A, *h_B, *hostRef, *gpuRef;
+    h_A = (int *)malloc(nBytes);
+    h_B = (int *)malloc(nBytes);
+    hostRef = (int *)malloc(nBytes);
+    gpuRef = (int *)malloc(nBytes);
 
     // initialize data at host side
 
@@ -140,16 +142,19 @@ int main(int argc, char **argv)
     memset(hostRef, 0, nBytes);
     memset(gpuRef, 0, nBytes);
 
+    /* Deje comentada esta parte porque estaba tardando mucho en cpu para hacer
+    las pruebas, pero si lo cheque antes y los resultados estaban bien */
+
     // add matrix at host side for result SAFE_CALLs
-    auto start_cpu =  chrono::high_resolution_clock::now();
+    /*auto start_cpu =  chrono::high_resolution_clock::now();
     multMatrixOnHost(h_A, h_B, hostRef, nx, ny);
     auto end_cpu =  chrono::high_resolution_clock::now();
     chrono::duration<float, std::milli> duration_ms = end_cpu - start_cpu;
 
-    printf("multMatrixOnHost elapsed %f ms\n", duration_ms.count());
+    printf("multMatrixOnHost elapsed %f ms\n", duration_ms.count());*/
 
     // malloc device global memory
-    float *d_MatA, *d_MatB, *d_MatC;
+    int *d_MatA, *d_MatB, *d_MatC;
     SAFE_CALL(cudaMalloc((void **)&d_MatA, nBytes), "Error allocating d_MatA");
     SAFE_CALL(cudaMalloc((void **)&d_MatB, nBytes), "Error allocating d_MatB");
     SAFE_CALL(cudaMalloc((void **)&d_MatC, nBytes), "Error allocating d_MatC");
@@ -158,17 +163,17 @@ int main(int argc, char **argv)
     SAFE_CALL(cudaMemcpy(d_MatA, h_A, nBytes, cudaMemcpyHostToDevice), "Error copying d_MatA");
     SAFE_CALL(cudaMemcpy(d_MatB, h_B, nBytes, cudaMemcpyHostToDevice), "Error copying d_MatB");
 
-    // invoke kernel at host side
-    int dimx = 256;
+    // invoke kernel at host side256
+    int dimx = 128*2;
     dim3 block(dimx, 1);
     dim3 grid((nx + block.x - 1) / block.x, 1);
 
-    start_cpu =  chrono::high_resolution_clock::now();
+    auto start_cpu =  chrono::high_resolution_clock::now();
     multMatrixOnGPU1D<<<grid, block>>>(d_MatA, d_MatB, d_MatC, nx, ny);
     SAFE_CALL(cudaDeviceSynchronize(), "Error executing kernel");
-    end_cpu =  chrono::high_resolution_clock::now();
+    auto end_cpu =  chrono::high_resolution_clock::now();
 
-    duration_ms = end_cpu - start_cpu;
+    chrono::duration<float, std::milli> duration_ms = end_cpu - start_cpu;
 
     printf("multMatrixOnGPU1D <<<(%d,%d), (%d,%d)>>> elapsed %f ms\n", grid.x,
            grid.y,
@@ -181,7 +186,7 @@ int main(int argc, char **argv)
     SAFE_CALL(cudaMemcpy(gpuRef, d_MatC, nBytes, cudaMemcpyDeviceToHost), "Error copying d_MatC");
 
     // check device results
-    checkResult(hostRef, gpuRef, nxy);
+    // checkResult(hostRef, gpuRef, nxy);
 
     // free device global memory
     SAFE_CALL(cudaFree(d_MatA), "Error freeing memory");

@@ -2,10 +2,11 @@
 #include <cstdlib>
 #include <math.h>
 #include <chrono>
+#include "omp.h"
 
 using namespace std;
 
-#define SIZE 2000
+#define SIZE 4000
 
 void initialData(int *ip, const int size)
 {
@@ -45,24 +46,25 @@ void multMatrix(int *A, int *B, int *C, const int nx,
 
     int *ibm = B;
 
-    for (int iy = 0; iy < ny; iy++)
-    {
-        for (int ix = 0; ix < nx; ix++)
-        {
-            ibm = B;
-            for (int im = 0; im < nx; im++)
-            {
-                ic[ix] += ia[im] * ibm[ix];
-                ibm += nx;
-            }
-        }
+    int iy, ix, im;
 
-        ia += nx;
-        ib += nx;
-        ic += nx;
-    }
+    #pragma omp parallel for private(iy, ix, im, ibm) shared(ia, ib, ic)
+      for (iy = 0; iy < ny; iy++)
+      {
+          for (ix = 0; ix < nx; ix++)
+          {
+              ibm = B;
+              for (im = 0; im < nx; im++)
+              {
+                  ic[ix] += ia[im] * ibm[ix];
+                  ibm += nx;
+              }
+          }
 
-    return;
+          ia += nx;
+          ib += nx;
+          ic += nx;
+      }
 }
 
 int main(int argc, char **argv)
@@ -81,6 +83,8 @@ int main(int argc, char **argv)
 
   initialData(h_A, nxy);
   initialData(h_B, nxy);
+
+  omp_set_num_threads(6);
 
   auto start_cpu =  chrono::high_resolution_clock::now();
   multMatrix(h_A, h_B, hostRef, nx, ny);
